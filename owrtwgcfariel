@@ -1,0 +1,100 @@
+
+
+# ---------------------------------------------------------
+# 0. INSTALL REQUIREMENTS
+# ---------------------------------------------------------
+opkg update
+opkg install luci-proto-wireguard 
+
+>/etc/banner
+
+echo "                                              
+                                              
+▄████▄ ▄▄▄▄  ▄▄ ▄▄▄▄▄ ▄▄   ▄▄ ▄▄ ▄▄▄▄  ▄▄  ▄▄ 
+██▄▄██ ██▄█▄ ██ ██▄▄  ██   ██▄██ ██▄█▀ ███▄██ 
+██  ██ ██ ██ ██ ██▄▄▄ ██▄▄▄ ▀█▀  ██    ██ ▀██ 
+                                              
+
+telegram : @arielvpnservice" >> /etc/banner
+
+# ---------------------------------------------------------
+# 1. CHANGE LAN IP ADDRESS
+# ---------------------------------------------------------
+uci set network.lan.ipaddr='192.168.12.1'
+
+# ---------------------------------------------------------
+# 2. BASE WI-FI CONFIGURATION (ax6s - Dual Band)
+# ---------------------------------------------------------
+# 2.4GHz
+uci set wireless.radio0.disabled='0'
+uci set wireless.default_radio0.ssid='mi'
+uci set wireless.default_radio0.encryption='psk2'
+uci set wireless.default_radio0.key='22222222'
+uci set wireless.default_radio0.network='lan'
+
+# 5GHz
+uci set wireless.radio1.disabled='0'
+uci set wireless.default_radio1.ssid='mi'
+uci set wireless.default_radio1.encryption='psk2'
+uci set wireless.default_radio1.key='22222222'
+uci set wireless.default_radio1.network='lan'
+
+# ---------------------------------------------------------
+# 3. SETUP WIREGUARD FULL TUNNEL (wg0)
+# ---------------------------------------------------------
+uci set network.wg0=interface
+uci set network.wg0.proto='wireguard'
+uci set network.wg0.private_key='SKD+8xS2M6ZSvYX0LKTe5aWJjsJIQ7S2s51KvCKRdmU='
+uci set network.wg0.mtu='1280'
+uci add_list network.wg0.addresses='172.16.0.2/32'
+
+# Add WireGuard Peer
+uci add network wireguard_wg0
+uci rename network.@wireguard_wg0[-1]='wg0_peer1'
+uci set network.wg0_peer1.public_key='bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='
+uci set network.wg0_peer1.endpoint_host='162.159.192.1'
+uci set network.wg0_peer1.endpoint_port='500'
+uci set network.wg0_peer1.persistent_keepalive='25'
+
+# route_allowed_ips='1' combined with 0.0.0.0/0 forces ALL internet traffic into the VPN
+uci set network.wg0_peer1.route_allowed_ips='1'
+uci add_list network.wg0_peer1.allowed_ips='0.0.0.0/0'
+
+# ---------------------------------------------------------
+# 4. FIREWALL AND DNS SETUP
+# ---------------------------------------------------------
+# Force LAN clients to use Cloudflare DNS directly to prevent DNS leaks
+uci add_list dhcp.lan.dhcp_option='6,1.1.1.1,1.0.0.1'
+
+# Create a dedicated firewall zone for the VPN
+uci add firewall zone
+uci rename firewall.@zone[-1]='wg_vpn'
+uci set firewall.wg_vpn.name='wg_vpn'
+uci set firewall.wg_vpn.network='wg0'
+uci set firewall.wg_vpn.input='REJECT'
+uci set firewall.wg_vpn.output='ACCEPT'
+uci set firewall.wg_vpn.forward='REJECT'
+uci set firewall.wg_vpn.masq='1'
+uci set firewall.wg_vpn.mtu_fix='1'
+
+# Forward LAN traffic to the VPN zone
+uci add firewall forwarding
+uci rename firewall.@forwarding[-1]='lan_wg'
+uci set firewall.lan_wg.src='lan'
+uci set firewall.lan_wg.dest='wg_vpn'
+
+# ---------------------------------------------------------
+# 5. COMMIT AND RESTART SERVICES
+# ---------------------------------------------------------
+uci commit network
+uci commit wireless
+uci commit firewall
+uci commit dhcp
+
+/etc/init.d/network restart
+/etc/init.d/firewall restart
+/etc/init.d/dnsmasq restart
+wifi reload
+
+
+
