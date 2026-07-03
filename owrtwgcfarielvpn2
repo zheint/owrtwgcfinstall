@@ -1,0 +1,84 @@
+# ---------------------------------------------------------
+# 0. INSTALL REQUIREMENTS
+# ---------------------------------------------------------
+opkg update
+opkg install luci-proto-wireguard kmod-wireguard
+
+# ---------------------------------------------------------
+# 1. BASE WI-FI CONFIGURATION
+# ---------------------------------------------------------
+# 2.4GHz
+uci set wireless.radio0.disabled='0'
+uci set wireless.default_radio0.ssid='mi'
+uci set wireless.default_radio0.encryption='psk2'
+uci set wireless.default_radio0.key='22222222'
+uci set wireless.default_radio0.network='lan'
+
+# 5GHz
+uci set wireless.radio1.disabled='0'
+uci set wireless.default_radio1.ssid='mi'
+uci set wireless.default_radio1.encryption='psk2'
+uci set wireless.default_radio1.key='22222222'
+uci set wireless.default_radio1.network='lan'
+
+# ---------------------------------------------------------
+# 2. BATCH CONFIGURE NETWORK (WireGuard & LAN IP)
+# ---------------------------------------------------------
+cat << "EOF" > /tmp/net_setup.uci
+# LAN IP
+set network.lan.ipaddr='192.168.12.1'
+
+# WireGuard Interface
+set network.wg0=interface
+set network.wg0.proto='wireguard'
+set network.wg0.private_key='SKD+8xS2M6ZSvYX0LKTe5aWJjsJIQ7S2s51KvCKRdmU='
+set network.wg0.mtu='1280'
+add_list network.wg0.addresses='172.16.0.2/32'
+
+# WireGuard Peer
+set network.wg0_peer=wireguard_wg0
+set network.wg0_peer.public_key='bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo='
+set network.wg0_peer.endpoint_host='162.159.192.1'
+set network.wg0_peer.endpoint_port='500'
+set network.wg0_peer.persistent_keepalive='25'
+set network.wg0_peer.route_allowed_ips='1'
+add_list network.wg0_peer.allowed_ips='0.0.0.0/0'
+EOF
+uci batch < /tmp/net_setup.uci
+uci commit network
+
+# ---------------------------------------------------------
+# 3. FIREWALL SETUP (fw4 compatible)
+# ---------------------------------------------------------
+cat << "EOF" > /tmp/fw_setup.uci
+# Create Zone
+set firewall.wg_vpn=zone
+set firewall.wg_vpn.name='wg_vpn'
+set firewall.wg_vpn.network='wg0'
+set firewall.wg_vpn.input='REJECT'
+set firewall.wg_vpn.output='ACCEPT'
+set firewall.wg_vpn.forward='REJECT'
+set firewall.wg_vpn.masq='1'
+set firewall.wg_vpn.mtu_fix='1'
+
+# Create Forwarding
+set firewall.lan_wg=forwarding
+set firewall.lan_wg.src='lan'
+set firewall.lan_wg.dest='wg_vpn'
+EOF
+uci batch < /tmp/fw_setup.uci
+uci commit firewall
+
+# ---------------------------------------------------------
+# 4. DNS SETUP
+# ---------------------------------------------------------
+uci set dhcp.lan.dhcp_option='6,1.1.1.1,1.0.0.1'
+uci commit dhcp
+
+# ---------------------------------------------------------
+# 5. RESTART SERVICES
+# ---------------------------------------------------------
+/etc/init.d/network restart
+/etc/init.d/firewall restart
+/etc/init.d/dnsmasq restart
+wifi reload
